@@ -57,24 +57,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KHỞI TẠO DỮ LIỆU MẪU (SESSION STATE)
+# 2. KHỞI TẠO DỮ LIỆU TRỐNG (SESSION STATE)
 # ==========================================
 if "transactions" not in st.session_state:
-    today = datetime.now().date()
-    st.session_state.transactions = [
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=14), "type": "income", "amount": 45000000, "desc": "Thanh toán hợp đồng #HD01 - Công ty Minh Anh", "category": "Doanh thu bán hàng", "freq": "Một lần", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=12), "type": "expense", "amount": 18000000, "desc": "Nhập lô hàng nguyên vật liệu đợt 1", "category": "Chi phí vận hành", "freq": "Một lần", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=10), "type": "income", "amount": 12500000, "desc": "Đơn hàng #DH08 - Khách hàng Hoàng Nam", "category": "Doanh thu bán hàng", "freq": "Một lần", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=7), "type": "expense", "amount": 8500000, "desc": "Chi phí quảng cáo Facebook & Google Ads", "category": "Marketing", "freq": "Hàng tuần", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=5), "type": "income", "amount": 65000000, "desc": "Đơn hàng #DH12 - Đại lý Phân phối Miền Nam", "category": "Doanh thu bán hàng", "freq": "Một lần", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=3), "type": "expense", "amount": 25000000, "desc": "Thanh toán lương & phụ cấp nhân sự", "category": "Lương / Định kỳ", "freq": "Hàng tháng", "status": "Đã trả"},
-        {"id": str(uuid.uuid4()), "date": today - timedelta(days=1), "type": "income", "amount": 32000000, "desc": "Đơn hàng #DH15 - Khách hàng Thảo Vy", "category": "Doanh thu bán hàng", "freq": "Một lần", "status": "Chờ thanh toán"},
-        {"id": str(uuid.uuid4()), "date": today, "type": "income", "amount": 15000000, "desc": "Đơn hàng #DH18 - Cửa hàng Bách Hóa Xanh", "category": "Doanh thu bán hàng", "freq": "Một lần", "status": "Chờ thanh toán"},
-        {"id": str(uuid.uuid4()), "date": today + timedelta(days=2), "type": "expense", "amount": 12000000, "desc": "Tiền thuê mặt bằng & kho bãi tháng tới", "category": "Lương / Định kỳ", "freq": "Hàng tháng", "status": "Chờ thanh toán"},
-    ]
+    st.session_state.transactions = []
 
-if "last_deleted_paid" not in st.session_state:
-    st.session_state.last_deleted_paid = []
+if "last_deleted_backup" not in st.session_state:
+    st.session_state.last_deleted_backup = []
 
 # ==========================================
 # 3. THUẬT TOÁN DỰ BÁO DÒNG TIỀN TỐI ƯU (HYBRID ENGINE)
@@ -140,7 +129,7 @@ def run_cashflow_forecast(df: pd.DataFrame, initial_balance: float, horizon_days
     except Exception:
         hw_pred = ols_pred
 
-    # Kết hợp trọng số (65% Holt-Winters + 35% OLS) & giảm nhiễu ngoại lai
+    # Kết hợp trọng số (65% Holt-Winters + 35% OLS)
     base_daily_pred = 0.65 * np.array(hw_pred) + 0.35 * np.array(ols_pred)
 
     # 3. Cộng dồn các giao dịch định kỳ & đơn hàng tương lai đã lên lịch
@@ -160,7 +149,6 @@ def run_cashflow_forecast(df: pd.DataFrame, initial_balance: float, horizon_days
             elif freq == "Hàng tháng" and f_date > tx_date and f_date.day == tx_date.day:
                 scheduled_future[idx] += amt
 
-    # Nếu đã có giao dịch định kỳ lên lịch, giảm tỷ trọng dự báo thống kê để tránh tính trùng
     total_future_net = (base_daily_pred * 0.35) + scheduled_future
 
     # 4. Tính số dư tương lai & Dải tin cậy 95% (Confidence Interval)
@@ -256,7 +244,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("⚙️ Cấu hình Dự báo")
-    raw_init_bal = st.text_input("Số dư quỹ đầu kỳ (VNĐ)", value="100.000.000")
+    raw_init_bal = st.text_input("Số dư quỹ đầu kỳ (VNĐ)", value="0")
     initial_balance = parse_vnd(raw_init_bal)
     st.caption(f"🏦 Quỹ đầu kỳ: **{format_vnd(initial_balance)}**")
 
@@ -383,12 +371,12 @@ fig.update_yaxes(separatethousands=True)
 st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# 7. QUẢN LÝ NỘI DUNG DÒNG TIỀN & XÓA ĐƠN ĐÃ TRẢ
+# 7. QUẢN LÝ NỘI DUNG DÒNG TIỀN & XÓA DỮ LIỆU
 # ==========================================
 st.subheader("📋 Quản lý Nội dung Dòng tiền & Đơn hàng")
 
-# Thanh công cụ lọc & Xóa hàng loạt đơn đã trả
-c_search, c_type, c_stat, c_del = st.columns([2.2, 1.2, 1.3, 1.8])
+# Thanh công cụ lọc, Xóa đơn đã trả & Xóa tất cả
+c_search, c_type, c_stat, c_del, c_del_all = st.columns([2.0, 1.1, 1.2, 1.6, 1.3])
 with c_search:
     search_kw = st.text_input("🔍 Tìm kiếm nội dung đơn hàng", placeholder="Nhập từ khóa mô tả...", label_visibility="collapsed")
 with c_type:
@@ -399,24 +387,30 @@ with c_stat:
 paid_count = int((df_tx["status"] == "Đã trả").sum()) if not df_tx.empty else 0
 
 with c_del:
-    if st.button(f"🗑️ Xóa các đơn đã trả ({paid_count})", disabled=(paid_count == 0), use_container_width=True):
-        st.session_state.last_deleted_paid = [t for t in st.session_state.transactions if t["status"] == "Đã trả"]
+    if st.button(f"🗑️ Xóa đã trả ({paid_count})", disabled=(paid_count == 0), use_container_width=True):
+        st.session_state.last_deleted_backup = [t for t in st.session_state.transactions if t["status"] == "Đã trả"]
         st.session_state.transactions = [t for t in st.session_state.transactions if t["status"] != "Đã trả"]
         st.rerun()
 
-# Nút hoàn tác nếu vừa xóa các đơn đã trả
-if st.session_state.last_deleted_paid:
+with c_del_all:
+    if st.button("💥 Xóa tất cả", disabled=df_tx.empty, use_container_width=True):
+        st.session_state.last_deleted_backup = list(st.session_state.transactions)
+        st.session_state.transactions = []
+        st.rerun()
+
+# Nút hoàn tác nếu vừa xóa dữ liệu
+if st.session_state.last_deleted_backup:
     col_info, col_undo = st.columns([4, 1])
     with col_info:
-        st.info(f"Đã xóa {len(st.session_state.last_deleted_paid)} đơn hàng có trạng thái 'Đã trả'.")
+        st.info(f"Đã xóa {len(st.session_state.last_deleted_backup)} bản ghi dòng tiền.")
     with col_undo:
         if st.button("↩️ Hoàn tác xóa", use_container_width=True):
-            st.session_state.transactions.extend(st.session_state.last_deleted_paid)
-            st.session_state.last_deleted_paid = []
+            st.session_state.transactions.extend(st.session_state.last_deleted_backup)
+            st.session_state.last_deleted_backup = []
             st.rerun()
 
 if df_tx.empty:
-    st.warning("Chưa có dữ liệu dòng tiền nào. Hãy thêm giao dịch mới ở thanh bên trái!")
+    st.info("📭 Bảng dữ liệu hiện đang trống. Hãy nhập đơn hàng hoặc dòng tiền mới ở thanh bên trái!")
 else:
     # Áp dụng bộ lọc
     mask = pd.Series(True, index=df_tx.index)
@@ -480,7 +474,6 @@ else:
     # Đồng bộ lại thay đổi từ bảng data_editor vào session_state
     if st.button("🔄 Cập nhật thay đổi trên bảng"):
         updated_records = []
-        edited_ids = set(edited_df["id"].dropna().tolist())
 
         # Giữ lại các bản ghi không nằm trong bộ lọc hiện tại
         for tx in st.session_state.transactions:
